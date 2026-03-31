@@ -1,17 +1,31 @@
-import sys
 import uuid
 import streamlit as st
 import requests
 import os
+import sys  # 💡 sys 모듈 누락 수정
 from supabase import create_client, Client
 from streamlit_javascript import st_javascript
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+load_dotenv(resource_path('.env'))
 
 @st.cache_resource
 def get_supabase_client():
-    # 🚨 나의 supabase 주소와 Anon 키
-    url = "https://gkzbiacodysnrzbpvavm.supabase.co"
-    key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdremJpYWNvZHlzbnJ6YnB2YXZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NzE2MTgsImV4cCI6MjA4OTE0NzYxOH0.Lv5uVeNZOyo21tgyl2jjGcESoLl_iQTJYp4jdCwuYDU"
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+
+    if not url or not key:
+        return None
+    
     return create_client(url, key)
 
 
@@ -64,16 +78,15 @@ def log_app_usage(app_name="unknown_app", action="page_view", details=None):
         current_session = get_or_create_session_id()
 
         user_agent = st.context.headers.get("User-Agent", "Unknown") if hasattr(st, "context") else "Unknown"
-        kst = timezone(timedelta(hours=9))
-        # korea_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
-        # ✅ 수정 코드: +09:00 꼬리표가 자동으로 붙는 표준 포맷
-        korea_time = datetime.now(kst).isoformat()
+        
+        # 💡 [핵심 수정] 타임존 이중 계산 방지를 위해 명시적인 UTC 시간(ISO 포맷) 사용
+        utc_time = datetime.now(timezone.utc).isoformat()
 
         log_data = {
             "session_id": current_session,
             "app_name": app_name,
             "action": action,
-            "timestamp": korea_time,
+            "timestamp": utc_time,  # 💡 UTC 시간 전송 (Supabase가 KST로 변환)
             "country": loc_data.get('country', "Unknown"),
             "region": loc_data.get('regionName', "Unknown"),
             "city": loc_data.get('city', "Unknown"),
@@ -83,6 +96,17 @@ def log_app_usage(app_name="unknown_app", action="page_view", details=None):
             "details": details if details else {},
             "user_agent": user_agent
         }
+
+        # ==========================================================
+        # 🚨 [유령 봇 차단] 기기 정보나 IP가 없는 접근은 로그를 남기지 않고 즉시 종료!
+        # ==========================================================
+        if not user_agent or user_agent == "Unknown" or "bot" in user_agent.lower():
+            return False
+            
+        if not real_ip or real_ip == "Unknown":
+            return False
+        # ==========================================================
+        
         client.table('usage_logs').insert(log_data, returning='minimal').execute()
         return True
     except Exception as e:
