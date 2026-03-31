@@ -10,13 +10,14 @@ from tracker_web import log_app_usage
 from dotenv import load_dotenv
 from supabase import create_client
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# env_path = os.path.join(current_dir, "..", ".env")
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# # env_path = os.path.join(current_dir, "..", ".env")
+# # load_dotenv(dotenv_path=env_path, override=True)
+
+# # 현재 폴더에서 .env 파일을 찾도록 수정
+# env_path = os.path.join(current_dir, ".env")
 # load_dotenv(dotenv_path=env_path, override=True)
 
-# 현재 폴더에서 .env 파일을 찾도록 수정
-env_path = os.path.join(current_dir, ".env")
-load_dotenv(dotenv_path=env_path, override=True)
 
 # 1. 세션 상태(session_state) 초기화
 if "distance" not in st.session_state:
@@ -28,13 +29,30 @@ if "charge_amount" not in st.session_state:
 
 @st.cache_resource
 def get_viewer_supabase():
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
+    # url = os.getenv("SUPABASE_URL")
+    # key = os.getenv("SUPABASE_KEY")
     
+    # if not url or not key:
+    #     st.error("💡 본인의 Supabase 주소와 키를 .env 파일에 세팅해 주세요!")
+    #     st.stop()
+    # ---------------------------------------------------------
+    # 🔑 스마트 키 불러오기 (Cloud Secrets 우선, 없으면 로컬 .env)
+    # ---------------------------------------------------------
+    if "supabase" in st.secrets:
+        # 1. Streamlit Cloud 배포 환경일 경우 (Secrets 탭에서 가져옴)
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+    else:
+        # 2. 로컬 PC 테스트 환경일 경우 (.env 파일에서 가져옴)
+        load_dotenv()
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+
+    # 키가 둘 다 없을 때만 에러 발생
     if not url or not key:
-        st.error("💡 본인의 Supabase 주소와 키를 .env 파일에 세팅해 주세요!")
+        st.error("🚨 본인의 Supabase 주소와 키를 세팅해 주세요!")
         st.stop()
-        
+                
     return create_client(url, key)
 
 # 콤보박스 값 변경 시 실행될 콜백 함수
