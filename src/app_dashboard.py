@@ -45,7 +45,7 @@ def on_expense_category_change():
     selected_category = st.session_state.expense_category
     
     usage_details = json.dumps({"selected_category": selected_category}, ensure_ascii=False)
-    log_app_usage("driving_dashboard_web", "category_combobox_changed", details=usage_details)
+    log_app_usage("cheiri_driving_dashboard", "category_combobox_changed", details=usage_details)
     
     if selected_category == "기타":
         st.session_state.distance = 0.0
@@ -55,7 +55,7 @@ def on_expense_category_change():
 @st.dialog("⭐ Support Polymath Developer Automation Tool")
 def show_star_popup_web():
     # 팝업 노출 트래커 기록
-    log_app_usage("driving_dashboard_web", "star_prompt_displayed", details={"ui": "streamlit_dialog"})
+    log_app_usage("cheiri_driving_dashboard", "star_prompt_displayed", details={"ui": "streamlit_dialog"})
     
     st.warning(
         "💡 유용하게 사용하셨나요? 소스코드만 날름 가져가는 분들이 많습니다. "
@@ -71,7 +71,7 @@ def main():
     
     if "is_opened" not in st.session_state:
         # show_star_popup_web()
-        if log_app_usage("driving_dashboard_web", "app_opened"):
+        if log_app_usage("cheiri_driving_dashboard", "app_opened"):
             st.session_state.is_opened = True
 
     st.title("🏎️ Cheiri's 차 주행 데이터 분석 대시보드")
@@ -149,7 +149,7 @@ def main():
             }
             try:
                 supabase.table("driving_records").insert(record_data, returning="minimal").execute()
-                log_app_usage("driving_dashboard_web", "record_added", {"car_model": final_car_model, "category": category, "action": "insert"})
+                log_app_usage("cheiri_driving_dashboard", "record_added", {"car_model": final_car_model, "category": category, "action": "insert"})
                 st.success(f"[{final_car_model}] {category} 기록이 저장되었습니다!")
                 time.sleep(1)
                 st.rerun()
@@ -188,7 +188,7 @@ def main():
             st.session_state.search_start = selected_dates[0]
             st.session_state.search_end = selected_dates[0]
         
-        log_app_usage("driving_dashboard_web", "date_searched", {"start": st.session_state.search_start.isoformat(), "end": st.session_state.search_end.isoformat()})
+        log_app_usage("cheiri_driving_dashboard", "date_searched", {"start": st.session_state.search_start.isoformat(), "end": st.session_state.search_end.isoformat()})
 
     start_date_str = f"{st.session_state.search_start.isoformat()}T00:00:00"
     end_date_str = f"{st.session_state.search_end.isoformat()}T23:59:59"
@@ -400,7 +400,7 @@ def main():
                                         safe_changes[k] = v
                                         
                                 supabase.table("driving_records").update(safe_changes).eq("id", row_id).execute()
-                                log_app_usage("driving_dashboard_web", "record_inline_edited", {"record_id": row_id})
+                                log_app_usage("cheiri_driving_dashboard", "record_inline_edited", {"record_id": row_id})
                                 
                             st.success("✅ 변경된 데이터가 성공적으로 저장되었습니다!")
                             time.sleep(1)
@@ -429,7 +429,7 @@ def main():
                             try:
                                 selected_ids = selected_rows['id'].tolist()
                                 supabase.table("driving_records").delete().in_("id", selected_ids).execute()
-                                log_app_usage("driving_dashboard_web", "records_bulk_deleted", {"count": len(selected_ids)})
+                                log_app_usage("cheiri_driving_dashboard", "records_bulk_deleted", {"count": len(selected_ids)})
                                 st.success(f"✅ {len(selected_ids)}개의 기록이 완벽하게 삭제되었습니다!")
                                 time.sleep(1)
                                 st.rerun()
