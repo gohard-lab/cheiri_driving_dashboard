@@ -10,15 +10,6 @@ from tracker_web import log_app_usage
 from dotenv import load_dotenv
 from supabase import create_client
 
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# # env_path = os.path.join(current_dir, "..", ".env")
-# # load_dotenv(dotenv_path=env_path, override=True)
-
-# # 현재 폴더에서 .env 파일을 찾도록 수정
-# env_path = os.path.join(current_dir, ".env")
-# load_dotenv(dotenv_path=env_path, override=True)
-
-
 # 1. 세션 상태(session_state) 초기화
 if "distance" not in st.session_state:
     st.session_state.distance = 0.0
@@ -29,12 +20,6 @@ if "charge_amount" not in st.session_state:
 
 @st.cache_resource
 def get_viewer_supabase():
-    # url = os.getenv("SUPABASE_URL")
-    # key = os.getenv("SUPABASE_KEY")
-    
-    # if not url or not key:
-    #     st.error("💡 본인의 Supabase 주소와 키를 .env 파일에 세팅해 주세요!")
-    #     st.stop()
     # ---------------------------------------------------------
     # 🔑 스마트 키 불러오기 (Cloud Secrets 우선, 없으면 로컬 .env)
     # ---------------------------------------------------------
@@ -66,7 +51,6 @@ def on_expense_category_change():
         st.session_state.distance = 0.0
         st.session_state.fuel_used = 0.0
         st.session_state.charge_amount = 0.0
-
 
 @st.dialog("⭐ Support Polymath Developer Automation Tool")
 def show_star_popup_web():
@@ -180,7 +164,6 @@ def main():
     st.markdown("### 🔍 데이터 조회 조건")
     today = date.today()
     try:
-        # default_start = today.replace(year=today.year - 1)
         # 기본 시작일을 오늘로부터 90일(약 3개월) 전으로 설정합니다. (180일로 하시면 6개월이 됩니다)
         default_start = today - timedelta(days=90)
 
@@ -268,7 +251,7 @@ def main():
             col3.metric("기록 횟수", f"{len(my_car_df)} 회")
             col4.metric("총 유지비", f"{total_cost:,.0f} 원")
 
-            # 🛠️ [수정됨] 그래프 1: 연비/전비 트렌드 (x축 일자 표시 추가)
+            # 🛠️ 그래프 1: 연비/전비 트렌드 (x축 일자 표시 추가)
             eff_df = my_car_df.dropna(subset=['efficiency'])
             maint_df = my_car_df[my_car_df['category'].isin(['정비/수리', '튜닝/용품'])].copy()
             
@@ -337,97 +320,123 @@ def main():
             else:
                 st.info("해당 기간에 금액 기록이 없어 유지비 차트를 그릴 수 없습니다.")
 
-            # 하단 표 출력
-            st.markdown(f"### 📝 주행 및 유지비 기록 (클릭하여 관리)")
-            st.caption("👇 표에서 수정/삭제하고 싶은 행의 왼쪽 체크박스를 클릭하세요.")
+            # ==========================================================
+            # 🚨 [업그레이드 적용] 엑셀식 인라인 에디팅 + 일괄 삭제 + 전체 선택
+            # ==========================================================
+            st.markdown(f"### 📝 주행 및 유지비 기록 (직접 수정 및 관리)")
             
-            display_df = my_car_df[['drive_date', 'power_type', 'category', 'distance', 'fuel_used', 'charge_amount', 'efficiency', 'cost', 'memo']].copy()
-            display_df.columns = ['날짜', '동력원', '분류', '주행거리(km)', '주유량(L)', '충전량(kWh)', f'효율', '금액(원)', '메모']
-            display_df['날짜'] = display_df['날짜'].dt.strftime('%Y년 %m월 %d일')
+            # 1. 데이터 준비 (에러 방지를 위한 빈칸 채우기 포함)
+            display_df = my_car_df[['id', 'drive_date', 'power_type', 'category', 'distance', 'fuel_used', 'charge_amount', 'efficiency', 'cost', 'memo']].copy()
             
-            selection_event = st.dataframe(
-                display_df.style.format({'주행거리(km)': '{:.1f}', '주유량(L)': '{:.1f}', '충전량(kWh)': '{:.1f}', '효율': '{:.2f}', '금액(원)': '{:,.0f}'}), 
+            # NoneType 에러 방어를 위해 숫자형/문자형 빈칸 채우기
+            for col in ['distance', 'fuel_used', 'charge_amount', 'cost', 'efficiency']:
+                display_df[col] = display_df[col].fillna(0.0)
+            display_df['memo'] = display_df['memo'].fillna("")
+            
+            # 캘린더 수정을 위해 날짜 데이터 타입으로 변환
+            display_df['drive_date'] = pd.to_datetime(display_df['drive_date']).dt.date
+
+            # 2. 상단 컨트롤 (전체 선택)
+            col_ctrl1, col_ctrl2 = st.columns([1, 4])
+            with col_ctrl1:
+                select_all = st.checkbox("전체 선택", value=False, key="select_all_records")
+            
+            st.caption("👇 **표의 셀을 더블클릭하여 내용을 직접 수정**하거나, 왼쪽 체크박스를 선택해 **일괄 삭제**할 수 있습니다.")
+            
+            # 3. 데이터프레임에 '선택' 열 추가
+            display_df.insert(0, "선택", select_all)
+            
+            # 4. st.data_editor 실행
+            # 💡 핵심 비법: DB 업데이트를 쉽게 하기 위해 underlying column 이름은 영어로 유지하되,
+            # column_config를 사용해 겉으로 보여지는 표의 헤더만 깔끔한 한글로 포장합니다!
+            edited_df = st.data_editor(
+                display_df,
                 hide_index=True,
-                selection_mode="single-row",
-                on_select="rerun"
+                use_container_width=True,
+                disabled=["id", "efficiency"], # id와 자동 계산되는 '효율'은 수정 불가(잠금)
+                column_config={
+                    "id": None, # 화면에서는 id 컬럼을 아예 숨깁니다 (수정 시 내부적으로만 사용)
+                    "선택": st.column_config.CheckboxColumn("선택", default=False),
+                    "drive_date": st.column_config.DateColumn("날짜", format="YYYY-MM-DD"),
+                    "power_type": st.column_config.SelectboxColumn("동력원", options=["내연기관", "전기차"]),
+                    "category": st.column_config.SelectboxColumn("분류", options=["주유/충전", "정비/수리", "세차", "튜닝/용품", "기타"]),
+                    "distance": st.column_config.NumberColumn("주행거리(km)", format="%.1f"),
+                    "fuel_used": st.column_config.NumberColumn("주유량(L)", format="%.1f"),
+                    "charge_amount": st.column_config.NumberColumn("충전량(kWh)", format="%.1f"),
+                    "efficiency": st.column_config.NumberColumn(f"효율({eff_unit})", format="%.2f"),
+                    "cost": st.column_config.NumberColumn("금액(원)", format="%d"),
+                    "memo": st.column_config.TextColumn("메모")
+                },
+                key="record_editor"
             )
-            
-            # --- 5. 기록 수정 및 삭제 ---
-            st.divider()
-            st.markdown("### 🛠️ 선택된 기록 관리")
-            
-            selected_rows = selection_event.selection.rows
-            
-            if len(selected_rows) > 0:
-                selected_idx = selected_rows[0]
-                selected_row = my_car_df.iloc[selected_idx]
-                rec_id = int(selected_row['id'])
+
+            # --- 5. 인라인 에디팅 (수정) DB 저장 로직 ---
+            if "record_editor" in st.session_state:
+                edited_rows = st.session_state.record_editor.get("edited_rows", {})
                 
-                with st.form(key="edit_delete_form"):
-                    st.success("선택한 기록의 내용을 수정하거나 삭제할 수 있습니다.")
-                    
-                    e_col1, e_col2, e_col3 = st.columns(3)
-                    edit_date = e_col1.date_input("주행 날짜 수정", selected_row['drive_date'])
-                    
-                    p_types = ["내연기관", "전기차"]
-                    cur_ptype = selected_row['power_type'] if pd.notnull(selected_row.get('power_type')) else "내연기관"
-                    edit_ptype = e_col2.selectbox("동력원 수정", p_types, index=p_types.index(cur_ptype))
-                    
-                    categories = ["주유/충전", "정비/수리", "세차", "튜닝/용품", "기타"]
-                    cur_cat = selected_row['category'] if selected_row['category'] in categories else "기타"
-                    edit_category = e_col3.selectbox("지출 분류 수정", categories, index=categories.index(cur_cat))
-                    
-                    e_col4, e_col5, e_col6, e_col7 = st.columns(4)
-                    edit_dist = e_col4.number_input("거리 (km) 수정", value=float(selected_row['distance']), step=10.0)
-                    edit_fuel = e_col5.number_input("주유량 (L) 수정", value=float(selected_row['fuel_used'] if pd.notnull(selected_row.get('fuel_used')) else 0.0), step=5.0)
-                    edit_charge = e_col6.number_input("충전량 (kWh) 수정", value=float(selected_row['charge_amount'] if pd.notnull(selected_row.get('charge_amount')) else 0.0), step=5.0)
-                    edit_cost = e_col7.number_input("금액 (원) 수정", value=int(selected_row['cost']), step=1000)
-                    
-                    if edit_cost > 0:
-                        e_col7.caption(f"💸 **{edit_cost:,.0f} 원** ( {total_cost_to_hangul(edit_cost)} )")
-                    
-                    edit_memo = st.text_area("메모 수정", value=str(selected_row['memo']) if pd.notnull(selected_row['memo']) else "")
-                    
-                    st.markdown("---")
-                    btn_col1, btn_col2 = st.columns([1, 1])
-                    btn_update = btn_col1.form_submit_button("💾 이 기록 수정하기", type="primary")
-                    confirm_delete = btn_col2.checkbox("🚨 영구 삭제 동의")
-                    btn_delete = btn_col2.form_submit_button("🗑️ 선택한 기록 삭제")
-                    
-                    if btn_update:
-                        update_data = {
-                            "drive_date": edit_date.isoformat(),
-                            "power_type": edit_ptype,
-                            "category": edit_category,
-                            "distance": edit_dist,
-                            "fuel_used": edit_fuel,
-                            "charge_amount": edit_charge,
-                            "cost": edit_cost,
-                            "memo": edit_memo
-                        }
+                # 체크박스만 누른 것은 제외하고 실제 텍스트/숫자 수정 내역만 추출
+                actual_changes = {}
+                for row_idx, changes in edited_rows.items():
+                    real_edits = {k: v for k, v in changes.items() if k != "선택"}
+                    if real_edits:
+                        actual_changes[row_idx] = real_edits
+                
+                # 수정한 내역이 하나라도 생기면 저장 버튼 등장
+                if actual_changes:
+                    st.info(f"💡 **{len(actual_changes)}개의 행**이 수정되었습니다. 아래 버튼을 눌러 DB에 반영해 주세요.")
+                    if st.button("💾 수정한 데이터 DB에 일괄 저장", type="primary"):
                         try:
-                            supabase.table("driving_records").update(update_data).eq("id", rec_id).execute()
-                            log_app_usage("driving_dashboard_web", "record_edited", {"car_model": final_car_model, "action": "update", "record_id": rec_id})
-                            st.success("기록이 성공적으로 수정되었습니다!")
+                            for row_idx, col_changes in actual_changes.items():
+                                row_id = int(display_df.iloc[int(row_idx)]['id'])
+                                
+                                safe_changes = {}
+                                for k, v in col_changes.items():
+                                    if pd.isnull(v):
+                                        safe_changes[k] = None
+                                    elif k == 'drive_date' and v is not None:
+                                        # 날짜 데이터는 DB가 인식할 수 있는 ISO 포맷으로 변환
+                                        safe_changes[k] = str(v) + "T00:00:00" if len(str(v)) == 10 else str(v)
+                                    else:
+                                        safe_changes[k] = v
+                                        
+                                supabase.table("driving_records").update(safe_changes).eq("id", row_id).execute()
+                                log_app_usage("driving_dashboard_web", "record_inline_edited", {"record_id": row_id})
+                                
+                            st.success("✅ 변경된 데이터가 성공적으로 저장되었습니다!")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"수정 에러: {e}")
-                            
-                    if btn_delete:
-                        if confirm_delete:
+                            st.error(f"저장 중 오류 발생: {e}")
+
+            # --- 6. 다중 선택 (일괄 삭제) 로직 ---
+            selected_rows = edited_df[edited_df["선택"] == True]
+            
+            if len(selected_rows) > 0:
+                st.warning(f"⚠️ 총 **{len(selected_rows)}개**의 기록이 선택되었습니다.")
+                
+                with st.form("bulk_delete_form"):
+                    # 체리피커 방지 깃허브 Star 유도 멘트
+                    st.caption(
+                        "💡 유용하게 사용하셨나요? 소스코드만 날름 가져가는 분들이 많습니다. \n"
+                        "개발자의 땀과 노력에 대한 최소한의 예의로 [GitHub Star ⭐](https://github.com/gohard-lab)를 꾹 눌러주세요!\n"
+                        "*(Did you find this useful? Please leave a GitHub Star⭐!)*"
+                    )
+                    confirm_bulk = st.checkbox("🚨 선택한 모든 기록을 영구 삭제하는 것에 동의합니다.")
+                    btn_bulk_delete = st.form_submit_button("🗑️ 선택 항목 영구 삭제")
+                    
+                    if btn_bulk_delete:
+                        if confirm_bulk:
                             try:
-                                supabase.table("driving_records").delete().eq("id", rec_id).execute()
-                                log_app_usage("driving_dashboard_web", "record_deleted", {"car_model": final_car_model, "action": "delete", "record_id": rec_id})
-                                st.warning("선택한 기록이 영구적으로 삭제되었습니다.")
+                                selected_ids = selected_rows['id'].tolist()
+                                supabase.table("driving_records").delete().in_("id", selected_ids).execute()
+                                log_app_usage("driving_dashboard_web", "records_bulk_deleted", {"count": len(selected_ids)})
+                                st.success(f"✅ {len(selected_ids)}개의 기록이 완벽하게 삭제되었습니다!")
                                 time.sleep(1)
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"삭제 에러: {e}")
+                                st.error(f"오류 발생: {e}")
                         else:
-                            st.error("삭제를 원하시면 '영구 삭제 동의' 체크박스를 먼저 선택해 주세요.")
-            else:
-                st.info("👆 위 주행 기록 표에서 수정/삭제하고 싶은 행을 클릭해 주세요.")
+                            st.error("삭제 동의 체크박스를 선택해 주세요.")
         else:
             st.info(f"선택하신 기간 내에 [{final_car_model}]의 주행 기록이 없습니다.")
     else:
