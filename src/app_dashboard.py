@@ -11,7 +11,11 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(current_dir, "..", ".env")
+# env_path = os.path.join(current_dir, "..", ".env")
+# load_dotenv(dotenv_path=env_path, override=True)
+
+# 현재 폴더에서 .env 파일을 찾도록 수정
+env_path = os.path.join(current_dir, ".env")
 load_dotenv(dotenv_path=env_path, override=True)
 
 # 1. 세션 상태(session_state) 초기화
