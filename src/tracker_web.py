@@ -111,11 +111,10 @@ def log_app_usage(app_name="unknown_app", action="page_view", details=None):
             return False
         
         # ==========================================================
-        
-        client.table('usage_logs').insert(log_data, returning='minimal').execute()
-        
+                
         client.table('usage_logs').insert(log_data, returning='minimal').execute()
         return True
+    
     except Exception as e:
         print(f"🚨 트래커 에러: {e}")
         return False
